@@ -1,0 +1,7 @@
+/.metadata/
+/Cred/
+*.db
+/__pycache__/
+/database/
+../mycred.json
+
