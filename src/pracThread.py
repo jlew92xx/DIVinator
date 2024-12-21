@@ -1,6 +1,6 @@
 import sys
 from PyQt6.QtSql import QSqlDatabase
-from PyQt6.QtGui import QColor, QBrush
+from PyQt6.QtGui import QColor, QBrush, QFont
 from PyQt6.QtCore import QThread, QObject, pyqtSignal, pyqtSlot, Qt, QModelIndex
 from PyQt6.QtWidgets import *
 import robinListener
@@ -19,23 +19,33 @@ class ColorDelegate(QStyledItemDelegate):
         super().__init__(parent)
 
     def paint(self, painter, option, index):
-        value = index.model().data(index, Qt.ItemDataRole.DisplayRole)
-        
+        value = index.siblingAtColumn(1).data(Qt.ItemDataRole.DisplayRole)
         if value != None:
-            if index.column() == 1:
-                if isinstance(value, str):
-                    month = value.split("-")[1]
-                    month = int(month)
-                    if month % 3 == 2:
-                        brush = QBrush(QColor("blue"))
-                    elif month % 3 == 1:
-                        brush = QBrush(QColor("orange"))
-                    elif month % 3 == 0:
-                        brush = QBrush(QColor("green"))
+            if isinstance(value, str):
+                month = value.split("-")[1]
+                month = int(month)
+                if month % 3 == 2:
+                    brush = QBrush(QColor("blue"))
+                elif month % 3 == 1:
+                    brush = QBrush(QColor("orange"))
+                elif month % 3 == 0:
+                    brush = QBrush(QColor("green"))
+                painter.fillRect(option.rect, brush)
+        
+        value = index.siblingAtColumn(6).data(Qt.ItemDataRole.DisplayRole)
+        
+        font = QFont()
+        if value == "paid" or value == "reinvested" or value == "reinvesting":
+            font.setBold(True)
+            
+        if value == "pending" or value == "reinvesting":
+            font.setItalic(True)
 
+        
 
-                    painter.fillRect(option.rect, brush)
+        option.font = font
         super().paint(painter, option, index)
+
 
 
 
@@ -51,6 +61,9 @@ class divyTable(QTableView):
     def filterByYear (self, year:str):
        DATABASE_MAN.setYearFilter(year)
 
+    def filterByText(self, text:str, year:str):
+        DATABASE_MAN.setTextFilter(text, year)
+
 
 
 class Worker(QObject):
@@ -62,12 +75,15 @@ class Worker(QObject):
     @pyqtSlot()
     def run(self):
         while True:
+            print("Thread updates...")
+            robinListener.logInAndUpdate()
             # Your long-running task goes here
             if DATABASE_MAN.newUpdate:
                 print("Running in the background...")
-                self.sig.emit("FUCK THIS")
+                self.sig.emit("This")
             # Add a small sleep to prevent excessive CPU usage
-            QThread.msleep(1000)
+            QThread.msleep(60000)
+            
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -83,18 +99,20 @@ class MainWindow(QMainWindow):
 
 
         searchBarLayout = QHBoxLayout()
-        searchBar = QTextEdit()
-        searchBar.setPlaceholderText("Search")
-        searchBar.setMaximumSize(175, 30)
+        self.searchBar = QTextEdit()
+        self.searchBar.setPlaceholderText("Search")
+        self.searchBar.setMaximumSize(175, 30)
+
+        self.searchBar.textChanged.connect(self.onTextChange)
 
         self.yearCombobox = QComboBox()
         comboBoxYears = []
         comboBoxYears.extend(DATABASE_MAN.getUniqueYears())
-        
+        comboBoxYears.sort(reverse=True)
         self.yearCombobox.addItems(comboBoxYears)
         self.yearCombobox.currentIndexChanged.connect(self.newYearSelected)
         self.yearCombobox.setFixedWidth(100)
-        searchBarLayout.addWidget(searchBar)
+        searchBarLayout.addWidget(self.searchBar)
         
         searchBarLayout.addWidget(self.yearCombobox)
         self.mainLayout.addLayout(searchBarLayout)
@@ -105,6 +123,7 @@ class MainWindow(QMainWindow):
 
         #Middle table
         self.table = self.buildTable()
+        self.table.filterByYear(self.yearCombobox.currentText())
         self.table.doubleClicked.connect(self.showPopUp)
         self.panelLayout.addWidget(self.table)
         
@@ -124,14 +143,30 @@ class MainWindow(QMainWindow):
             currYear = int(self.yearCombobox.currentText())
         except:
             pass
-        self.setDiv = QBarSet(f"{currYear} dividends")
+
+        self.reinvestedSet = QBarSet(f"Reinvested")
+        self.pendingSet = QBarSet(f"Pending")
+        self.paidSet = QBarSet(f"Paid")
+        self.reinvestingSet = QBarSet(f"Reinvesting")
         
-        year2024 = DATABASE_MAN.getMonthlyGraphDataset(currYear)
+        divGraphDict = DATABASE_MAN.getMonthlyGraphList(currYear)
 
-        self.setDiv.append(year2024.values())
 
-        self.barSeries = QBarSeries()
-        self.barSeries.append(self.setDiv)
+        self.reinvestedSet.append(divGraphDict["reinvested"])
+        self.paidSet.append(divGraphDict["paid"])
+        self.reinvestingSet.append(divGraphDict['reinvesting'])
+        self.pendingSet.append(divGraphDict["pending"])
+
+
+
+        
+
+        self.barSeries = QStackedBarSeries()
+
+        self.barSeries.append(self.reinvestedSet)
+        self.barSeries.append(self.paidSet)
+        self.barSeries.append(self.reinvestingSet)
+        self.barSeries.append(self.pendingSet)
 
         self.divChart = QChart()
 
@@ -139,8 +174,8 @@ class MainWindow(QMainWindow):
         
 
         self.divChart.setTitle("Dividends per month")
-        self.months = year2024.keys()
-        print(self.months)
+        #BAD BAD
+        self.months = DATABASE_MAN.getMonthlyGraphDataset(currYear).keys()
         self.x_axis = QBarCategoryAxis()
         self.x_axis.append(self.months)
         self.divChart.addAxis(self.x_axis, Qt.AlignmentFlag.AlignBottom)
@@ -149,6 +184,7 @@ class MainWindow(QMainWindow):
         
         self.y_axis.setRange(0, DATABASE_MAN.getMaxAmount() * MAX_RANGE_AXIS_RATIO)
         self.y_axis.setTitleText("$$$$")
+        self.y_axis.setLabelFormat("$%.2f")
         self.divChart.addAxis(self.y_axis, Qt.AlignmentFlag.AlignLeft)
 
         self.barSeries.attachAxis(self.y_axis)
@@ -182,7 +218,7 @@ class MainWindow(QMainWindow):
         self.start_thread()
 
 
-
+    
 
 
     def start_thread(self):
@@ -202,28 +238,50 @@ class MainWindow(QMainWindow):
         print("it does something")
         if DATABASE_MAN.isNewyear:
             self.yearCombobox.clear()
-            self.yearCombobox.addItems(DATABASE_MAN.getUniqueYears())
+            years = DATABASE_MAN.getUniqueYears()
+            years.sort(reverse=True)
+            self.yearCombobox.addItems(years)
         
         if str(DATABASE_MAN.currYear) == self.yearCombobox.currentText():
             self.newYearSelected()
             self.y_axis.setRange(0, DATABASE_MAN.getMaxAmount() * MAX_RANGE_AXIS_RATIO)
         self.table.sortByColumn(1, Qt.SortOrder.DescendingOrder)
         DATABASE_MAN.resetNewUpdate()
+
+
+    def onTextChange(self):
+        self.table.filterByText(self.searchBar.toPlainText(), self.yearCombobox.currentText())
     
 
     def newYearSelected(self):
        
        self.barSeries.clear()
-       
+       self.searchBar.clear()
        newYear = self.yearCombobox.currentText()
        if newYear == "":
         return
-       self.table.filterByYear(newYear)  
-       newData = DATABASE_MAN.getMonthlyGraphDataset(newYear)
-       self.setDiv = QBarSet(newYear + " dividends")
-       self.setDiv.append(newData.values())
-       self.barSeries.append(self.setDiv)
+       self.table.filterByYear(newYear)
 
+       self.reinvestedSet = QBarSet(f"Reinvested")
+       self.pendingSet = QBarSet(f"Pending")
+       self.reinvestingSet = QBarSet("Reinvesting")
+       self.paidSet = QBarSet(f"Paid")
+        
+       divGraphDict = DATABASE_MAN.getMonthlyGraphList(newYear)
+
+
+       self.reinvestedSet.append(divGraphDict["reinvested"])
+       self.paidSet.append(divGraphDict["paid"])
+       self.reinvestingSet.append(divGraphDict["reinvesting"])
+       self.pendingSet.append(divGraphDict["pending"])
+
+       self.barSeries.append(self.reinvestedSet)
+       self.barSeries.append(self.paidSet)
+       self.barSeries.append(self.reinvestingSet)
+       self.barSeries.append(self.pendingSet)
+
+
+       newData = DATABASE_MAN.getMonthlyGraphDataset(newYear)
        sum = 0
        for d in newData.keys():
            sum += newData[d]
@@ -233,6 +291,8 @@ class MainWindow(QMainWindow):
        avgDiv = 0
        if(int(newYear) < today.year):
            avgDiv = sum / 12
+       elif (int(newYear) > today.year):
+           avgDiv = 0 
        else:
            if today.month == 1:
                avgDiv = 0
@@ -249,9 +309,15 @@ class MainWindow(QMainWindow):
        
        self.chartView.setChart(self.divChart)
    
+    def calculateAverageYield(ticker:str) -> float:
 
+        avgStockBuyPrice = float(robinListener.getAvgStockPrice(ticker))
+        rateYTD = DATABASE_MAN.getSumRateYTD(ticker)
+        averageYield = (rateYTD / avgStockBuyPrice) * 100
+        return averageYield
+    
     def showPopUp(self):
-        print('double click')
+        
         selectedRow = self.table.selectedIndexes()
         sizeOfSelection = len(selectedRow)
 
@@ -269,17 +335,66 @@ class MainWindow(QMainWindow):
         popupWindow = QMainWindow(self)
         
         popupWindow.setWindowModality(Qt.WindowModality.WindowModal)
+        popupWindow.setMinimumSize(500, 420)
         ticker = row_data[0]
-        popupWindow.setWindowTitle(f"{ticker} divendend Report")
+        
+        avgYield = MainWindow.calculateAverageYield(ticker)
+        print(f"{ticker}->{avgYield}%")
+
+        popupWindow.setWindowTitle(f"{ticker} dividend Report")
         popUpWidget = QWidget()
         
         popupWindow.setCentralWidget(popUpWidget)
         childLayout = QVBoxLayout()
-        for data in row_data:
-            childLayout.addWidget(QLabel(str(data)))
+        # for data in row_data:
+        #     childLayout.addWidget(QLabel(str(data)))
+
+        ticker = row_data[0]
+        chart = self.buildRateGraph(ticker)
+        popupWindow.setCentralWidget(chart)
         popUpWidget.setLayout(childLayout)
         popupWindow.show()
         print("show pop up")
+
+    def buildRateGraph (self, ticker:str) -> QChartView:
+        chart = QChart()
+        data = DATABASE_MAN.getPaidToRateData(ticker)
+        series = QLineSeries()
+        series.setName(ticker + "'s Dividend rate")
+        min = 1000000
+        max = 0
+        for dt, value in data:
+            if value < min:
+                min = value
+            if value > max:
+                max = value
+            series.append(dt, value)
+        
+        chart.addSeries(series)
+        axis_x = QDateTimeAxis()
+        axis_x.setTickCount(5)
+        axis_x.setFormat("MMM yyyy")
+        axis_x.setTitleText("Date")
+        chart.addAxis(axis_x, Qt.AlignmentFlag.AlignBottom)
+        series.attachAxis(axis_x)
+        series.setBestFitLineVisible(False)
+
+        # Create and set the Y-axis (QValueAxis)
+        axis_y = QValueAxis()
+        axis_y.setLabelFormat("$%.2f")
+        if(min == max):
+            min *= .5
+            max *= 1.5
+        axis_y.setRange(min, max)
+        
+        axis_y.setTitleText("Value")
+        chart.addAxis(axis_y, Qt.AlignmentFlag.AlignLeft)
+        series.attachAxis(axis_y)
+
+        # Create the chart view
+        chart_view = QChartView(chart)
+        
+        return chart_view
 
 
 
@@ -294,6 +409,7 @@ class MainWindow(QMainWindow):
        table.hideColumn(7)
        table.setVisible(True)
        table.sortByColumn(1, Qt.SortOrder.DescendingOrder)
+       
        return table
 
 
@@ -308,11 +424,13 @@ if __name__ == "__main__":
     DATABASE_MAN = DatabaseManager.DatabaseManager(db)
    
     robinListener.dbManager = DATABASE_MAN
-    robinListener.logInAndUpdate()
-    t = threading.Thread(target=robinListener.startThread, daemon=True)
-    t.start()
-    
+    robinListener.logIn()
+    robinListener.buildURLToTickerDict()
+    # robinListener.logInAndUpdate()
+    # t = threading.Thread(target=robinListener.startThread, daemon=True)
+    # t.start()
 
+    
 
     window = MainWindow()
     window.show()

@@ -13,7 +13,7 @@ MONTHLYDIVLIST = 'DIVS'
 urlToTicker = {}
 columns = ["paid_at", "position", "rate" ,"amount","state","id"]
 sleepTime = 900
-dbManager = None
+dbManager:DatabaseManager
 stocks = None
 
 
@@ -27,7 +27,7 @@ def setDbManager(dbm):
     global dbManager
     dbManager = dbm
 
-def logInAndUpdate():
+def logIn():
     t = openCred()
     KEY = t["KEY"]
     EMAIL = t["EMAIL"]
@@ -37,12 +37,15 @@ def logInAndUpdate():
     LOGIN = robinhood.login(EMAIL, PASSWD, mfa_code = CODE)
 
 
-    divs =  robinhood.get_dividends()
+def buildURLToTickerDict():
     stocks = robinhood.get_all_positions()
     for stock in stocks:
         if stock["url"] not in urlToTicker.keys():
             urlToTicker[stock["url"]] = stock['symbol']
 
+def logInAndUpdate():
+
+    divs =  robinhood.get_dividends()
     for div in divs:
         insertDivDict = {}
         posUrl = div["instrument"].replace("instruments", "positions/5UX32878")
@@ -57,6 +60,17 @@ def logInAndUpdate():
         elif div["state"] == 'pending':
             insertDivDict['paid_at'] = div['payable_date'] +'T00:00:00.000000Z'
             dbManager.insertDiv(insertDivDict)
+
+def updateUrlToTicker(posUrl:str) -> bool:
+    output = False
+    stocks = robinhood.get_all_positions()
+    for stock in stocks:
+        if stock["url"] not in urlToTicker.keys():
+            if stock["url"] == posUrl:
+                output = True
+            urlToTicker[stock["url"]] = stock['symbol']
+
+    return output 
 def startThread():
     # t = openCred()
     # KEY = t["KEY"]
@@ -78,7 +92,14 @@ def startThread():
             insertDivDict = {}
             posUrl = div["instrument"].replace("instruments", "positions/5UX32878")
             #for some reason the ticker is not part of the dividend dict in the Robinhod api
-            insertDivDict['ticker'] = urlToTicker[posUrl]
+            if posUrl in urlToTicker or updateUrlToTicker(posUrl):
+                insertDivDict['ticker'] = urlToTicker[posUrl]
+            else:
+                print("SUM TING WONG with insert in robinlistener accessing the Ticker symbol")
+                insertDivDict["ticker"] = "n/a"
+            
+                
+
             for column in columns:
                 value = div[column]
                 insertDivDict[column] = value
@@ -88,6 +109,8 @@ def startThread():
             elif div["state"] == 'pending':
                 insertDivDict['paid_at'] = div['payable_date'] +'T00:00:00.000000Z'
                 dbManager.insertDiv(insertDivDict)
+
+        dbManager.newUpdates = dbManager.newUpdate
 
                 
         
@@ -106,18 +129,22 @@ def startThread():
         try:
             newDivs = robinhood.get_dividends()
         except:
+            logIn()
             print("robinhood failure")
 
-        #TODO fix this
-        divs = [item for item in newDivs if (item["paid_at"] != None and timeHelp.isAfterUpdate(item["paid_at"], lastUpdate) or item["state"] == "pending")]
-        print(f"We have {len(divs)} of new dividends to insert into the table")
+        divs = newDivs
 
-
+def getAvgStockPrice(ticker:str) -> str:
+    positions = robinhood.account.get_all_positions()
+    for pos in positions:
+        if pos['symbol'] == ticker:
+            return pos["average_buy_price"]
     
 
 if __name__ == "__main__":
 
-    startThread()
+    logIn()
+    getAvgStockPrice("KMB")
 
 
     

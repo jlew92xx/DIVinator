@@ -2,10 +2,11 @@ import sqlite3
 from os.path import exists
 from PyQt6.QtWidgets import *
 from PyQt6.QtSql import *
-from PyQt5.QtCore import QObject, Qt, QModelIndex
+from PyQt5.QtCore import QObject, Qt, QModelIndex, QDate, QDateTime
 from PyQt6.QtGui import QBrush, QColor
 import calendar
 import datetime
+import timeUltil
 import sys
 
 DIVABASE_PATH = "/home/jonathan/Repo/DIVinator/src/divabase.db"
@@ -22,6 +23,7 @@ class ColorDelegate(QStyledItemDelegate):
 
 class LewSQLModel(QSqlTableModel):
     def __init__(self, parent: QObject | None = ..., db: QSqlDatabase = ...) -> None:
+        
         super().__init__(parent, db)
         
 
@@ -31,8 +33,10 @@ class LewSQLModel(QSqlTableModel):
         if role == Qt.ItemDataRole.DisplayRole:
             value = super().data(index, role)
             if isinstance(value, float):
-                if index.column() == 4 or index.column() == 5:
+                if index.column() == 5:
                     return f"${value:,.2f}"  # Format as currency
+                elif (index.column() == 4):
+                    return f"${value:,.4f}"
             else:
                 colIndex = index.column()
                 if colIndex == 1:
@@ -78,8 +82,10 @@ class DatabaseManager():
         self.conn.commit()
         
         self.newUpdate = True
+        self.newUpdates = False
         
         self.model = LewSQLModel(None, db)
+        self.model.setEditStrategy(QSqlTableModel.EditStrategy.OnRowChange)
         self.model.setTable(DIVABASE_TABLE)
         self.currYear = self.getLatestYear()
         self.model.select()
@@ -93,6 +99,12 @@ class DatabaseManager():
     def setYearFilter(self, year:str):
         self.model.setFilter(f"DATE(paid_at) BETWEEN '{year}-01-01T00:00:00.00' AND '{year}-12-31T23:59:59.99'")
         self.model.select()
+
+    def setTextFilter(self, text:str, year:str):
+        self.model.setFilter(f"(DATE(paid_at) BETWEEN '{year}-01-01T00:00:00.00' AND '{year}-12-31T23:59:59.99') AND ticker LIKE '{text}%'")
+        self.model.select()
+
+    
 
     def setYear(self):
         self.currYear = str(datetime.datetime.now().year)
@@ -130,31 +142,57 @@ class DatabaseManager():
             print("updates state of " + div['ticker'])
             self.newUpdate = True
             self.updateState(div)
-            self.model.submit()
+            self.model.submitAll()
 
     def updateState(self, div:dict):
-        db = self.model.database()
-        q = QSqlQuery(db)
-        paid = div['paid_at']
-        if paid == None:
-            return
-        state = div['state']
-        id = div['id']
-        q.prepare('''
-                UPDATE
-                    divabase
-                SET
-                    paid_at = :paid
-                    state= :state
-                WHERE
-                    id = :id
+        # db = self.model.database()
+        # q = QSqlQuery(db)
+        # self.model.find
+        # paid = div['paid_at']
+        # if paid == None:
+        #     return
+        # state = div['state']
+        # id = div['id']
+        # q.prepare('''
+        #         UPDATE
+        #             divabase
+        #         SET
+        #             paid_at = :paid
+        #             state= :state
+        #         WHERE
+        #             id = :id
                     
-               ''')
-        q.bindValue(":paid", paid)
-        q.bindValue(":state", state)
-        q.bindValue(":id", id)
+        #        ''')
+        # q.bindValue(":paid", paid)
+        # q.bindValue(":state", state)
+        # q.bindValue(":id", id)
 
-        q.exec()
+        # q.exec()
+        newState = div["state"]
+        id = div["id"] 
+        self.curs.execute ("""
+                                UPDATE
+                                    divabase   
+                                SET
+                                    state = ?
+                                    WHERE
+                                        id = ?""", (newState, id,))
+        self.conn.commit()
+
+        
+
+        
+    
+
+
+    def getIndexFromId(self, id_value) -> int:
+        for row in range(self.model.rowCount()):
+            record = self.model.record(row)
+            if record.value("id") == id_value:  # Assuming "id" is the primary key column
+                return row  # Return the index of the first column in the row
+
+        return -1  # Return an invalid index if not found
+
         
     def getState(self, id):
         db = self.model.database()
@@ -194,8 +232,80 @@ class DatabaseManager():
 
         return max
 
+    def getSumRateYTD(self, ticker):
+        db = self.model.database()
+        q = QSqlQuery(db)
+        q.prepare('''
+        SELECT
+            max(paid_at) FROM divabase
+            WHERE ticker = :ticker
+        ''')
+        q.bindValue(":ticker", ticker)
+        dateMostCurr = None
+        if q.exec():
+            if q.next():
+                dateStr = q.value(0)
+                dateMostCurr = datetime.datetime.strptime(dateStr, timeUltil.FORMAT)
+        
+        if dateMostCurr == None:
+            return -1.0
+        
+        dateYearAgo = dateMostCurr - datetime.timedelta(days=340) #15 days subtracted to not include last years dividend maybe.
+
+        q.prepare('''
+        SELECT SUM(rate)
+        FROM divabase
+        WHERE paid_at BETWEEN :start_date and :end_date
+        AND ticker = :ticker
+        ''')
+        q.bindValue(":end_date", dateMostCurr.strftime(timeUltil.FORMAT))
+        q.bindValue(":start_date", dateYearAgo.strftime(timeUltil.FORMAT))
+        q.bindValue(":ticker", ticker)
+        output = 0
+        if q.exec():
+            if q.next():
+                output = q.value(0)
+
+        return output
 
 
+
+
+    def getMonthlyGraphList(self, year):
+        output = {}
+
+        output["pending"] = []
+        output["paid"] = []
+        output["reinvested"] = []
+        output["reinvesting"] = []
+        db = self.model.database()
+        q = QSqlQuery(db)
+        month = 1
+        while month <= 12:
+            total = 0
+            for state in output.keys():
+                q.prepare('''SELECT SUM(amount) FROM divabase
+                    WHERE strftime('%Y', paid_at) = :year
+                    AND strftime('%m', paid_at) = :month
+                    AND state = :state
+                    ''')
+                q.bindValue(":year", str(year))
+                q.bindValue(":month", str(month).zfill(2))
+                q.bindValue(":state", state)
+                if q.exec():
+                    if q.next():
+                        total = q.value(0)
+                        if total != "":
+                            total = float(total)
+                        else:
+                            total = 0
+                        output[state].append(total)
+                     
+                else:
+                    print("not good!!", q.lastError().text())
+            month += 1
+
+        return output
 
 
 
@@ -259,7 +369,35 @@ class DatabaseManager():
     def resetNewUpdate(self):
         self.isNewyear = False
         self.newUpdate = False
+        self.newUpdates = False
 
+    def getPaidToRateData(self, ticker:str):
+        db = self.model.database()
+        q = QSqlQuery(db)
+
+        q.prepare('''
+            SELECT paid_at,rate
+            FROM divabase
+            WHERE ticker = :ticker
+        ''')
+        q.bindValue(":ticker", ticker)
+        output = []
+        if q.exec():
+            
+            while q.next():
+                qdatetime = self.convertToQDatetime(q.value(0))
+                if not qdatetime.isValid():
+                    print("does not workd!" + q.value(0))
+                output.append((qdatetime.toMSecsSinceEpoch(), q.value(1)))
+
+        return output
+
+    def convertToQDatetime(self, strDate:str):
+        strDay = strDate.split("T")[0]
+        dayStrList = strDay.split('-')
+
+
+        return QDateTime(int(dayStrList[0]), int(dayStrList[1]), int(dayStrList[2]), 0, 0 ,0, 0, 1)
 
     def commit(self):
         self.model.select()
@@ -270,7 +408,7 @@ if __name__ == "__main__":
    db.setDatabaseName(DIVABASE_PATH)
    db.open()
    DATABASE_MAN = DatabaseManager(db)
+   xxx = DATABASE_MAN.getSumRateYTD("KMB")
    
-   print(DATABASE_MAN.getLatestYear())
 
    app.exec()
