@@ -13,6 +13,36 @@ from PyQt6.QtCharts import *
 DATABASE = "database/divabase.db"
 DATABASE_MAN = None
 MAX_RANGE_AXIS_RATIO = 1.05
+class YearDelegate(QStyledItemDelegate):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+
+    def paint(self, painter, option, index):
+        value = index.siblingAtColumn(0).data(Qt.ItemDataRole.DisplayRole)
+        font = QFont()
+        if(value == "Total"):
+            font.setBold(True)
+            font.setPointSize(15)
+        elif(value == 'AMD'):
+            font.setPointSize(13)
+        else:
+            month = index.row() + 1
+            if month % 3 == 2:
+                brush = QBrush(QColor("blue"))
+            elif month % 3 == 1:
+                brush = QBrush(QColor("orange"))
+            elif month % 3 == 0:
+                brush = QBrush(QColor("green"))
+
+            painter.fillRect(option.rect, brush)
+
+            
+            
+        
+        
+
+        option.font = font
+        super().paint(painter, option, index)
 
 class ColorDelegate(QStyledItemDelegate):
     def __init__(self, parent=None):
@@ -45,6 +75,67 @@ class ColorDelegate(QStyledItemDelegate):
 
         option.font = font
         super().paint(painter, option, index)
+
+
+
+class YearTable(QTableWidget):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("heyt")
+        self.setHorizontalHeaderLabels(["Month", "total"])
+        self.setRowCount(14)
+        self.setColumnCount(2)
+        self.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.verticalHeader().setVisible(False)
+        self.horizontalHeader().setVisible(False)
+        self.setItemDelegate(YearDelegate())
+        self.setVisible(True)
+        
+    def calcAMD(self, newData:dict, newYear):
+         #Cal calculate sum for average
+       today = datetime.datetime.now()
+       avgDiv = 0
+       if(int(newYear) < today.year):
+           sum = 0
+           for value in newData.values():
+               sum += value
+           avgDiv = sum / 12
+       elif (int(newYear) > today.year):
+           avgDiv = 0 
+       else:
+           if today.month == 1:
+               avgDiv = 0 
+           else:
+               listOfPastMonths = list(newData.values())[:today.month - 1]
+               s = 0
+               for value in listOfPastMonths:
+                   s += value
+               avgDiv = s / len(listOfPastMonths)
+       return avgDiv
+    
+
+    def sumTotalYear(self, newData:dict):
+        sum = 0
+        for d in newData.keys():
+           sum += newData[d]
+        return sum
+
+
+    def setTableData(self, currYear):
+        monthlyAmountDict = DATABASE_MAN.getMonthlyGraphDataset(currYear)
+        amd = self.calcAMD(monthlyAmountDict, currYear)
+        total = self.sumTotalYear(monthlyAmountDict)
+        row = 0
+        for monthStr in monthlyAmountDict.keys():
+            self.setItem(row, 0, QTableWidgetItem(monthStr + " " + str(currYear)))
+            amount = monthlyAmountDict[monthStr]
+            self.setItem(row, 1, QTableWidgetItem(f"${amount:.2f}"))
+            row += 1
+        self.setItem(row, 0, QTableWidgetItem("AMD"))
+        self.setItem(row, 1, QTableWidgetItem(f"${amd:.2f}"))
+        row += 1
+        self.setItem(row, 0, QTableWidgetItem("Total"))
+        self.setItem(row, 1, QTableWidgetItem("$" +f"{total:.2f}"))
 
 
 
@@ -169,6 +260,9 @@ class MainWindow(QMainWindow):
         self.barSeries.append(self.pendingSet)
 
         self.divChart = QChart()
+        # QFron
+        # self.divChart.setFont()
+        # self.divChart.setBackgroundBrush(QBrush(QColor(200, 200, 200, 0)))
 
         self.divChart.addSeries(self.barSeries)
         
@@ -194,25 +288,20 @@ class MainWindow(QMainWindow):
 
         self.data_layout.addWidget(self.chartView)
 
-        self.summDataLayout = QVBoxLayout()
-        totalLayout = QHBoxLayout()
-        totalLayout.addWidget(QLabel("Total"))
-        self.totalAmountLabel = QLabel()
 
-        averageLayout = QHBoxLayout()
-        averageLayout.addWidget(QLabel("AMD"))
+        
+        self.yearTable = YearTable()
+        
+        self.yearTable.setTableData(currYear)
+        self.yearTable.setVisible(True)
+        self.data_layout.addWidget(self.yearTable)
 
-        self.AMDLabel = QLabel()
-        averageLayout.addWidget(self.AMDLabel)
 
-        totalLayout.addWidget(self.totalAmountLabel)
-        self.summDataLayout.addLayout(totalLayout)
-        self.summDataLayout.addLayout(averageLayout)
      
 
         
         
-        self.data_layout.addLayout(self.summDataLayout)
+        
         
         # time.sleep(20)
         self.start_thread()
@@ -252,7 +341,7 @@ class MainWindow(QMainWindow):
     def onTextChange(self):
         self.table.filterByText(self.searchBar.toPlainText(), self.yearCombobox.currentText())
     
-
+    
     def newYearSelected(self):
        
        self.barSeries.clear()
@@ -261,6 +350,7 @@ class MainWindow(QMainWindow):
        if newYear == "":
         return
        self.table.filterByYear(newYear)
+       self.yearTable.setTableData(newYear)
 
        self.reinvestedSet = QBarSet(f"Reinvested")
        self.pendingSet = QBarSet(f"Pending")
@@ -282,30 +372,9 @@ class MainWindow(QMainWindow):
 
 
        newData = DATABASE_MAN.getMonthlyGraphDataset(newYear)
-       sum = 0
-       for d in newData.keys():
-           sum += newData[d]
+       
 
-        #Cal calculate sum for average
-       today = datetime.datetime.now()
-       avgDiv = 0
-       if(int(newYear) < today.year):
-           avgDiv = sum / 12
-       elif (int(newYear) > today.year):
-           avgDiv = 0 
-       else:
-           if today.month == 1:
-               avgDiv = 0
-           else:
-               listOfPastMonths = list(newData.values())[:today.month - 1]
-               s = 0
-               for value in listOfPastMonths:
-                   s += value
-               avgDiv = s / len(listOfPastMonths)
-       
-       
-       self.totalAmountLabel.setText(f"${sum:.2f}")
-       self.AMDLabel.setText(f"${avgDiv:.2f}")
+
        
        self.chartView.setChart(self.divChart)
    
