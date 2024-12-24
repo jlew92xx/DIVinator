@@ -179,11 +179,6 @@ class DatabaseManager():
                                         id = ?""", (newState, id,))
         self.conn.commit()
 
-        
-
-        
-    
-
 
     def getIndexFromId(self, id_value) -> int:
         for row in range(self.model.rowCount()):
@@ -207,10 +202,6 @@ class DatabaseManager():
         if q.exec():  
                 while q.next():
                     return q.value(0)
-
-
-
-
 
 
     def isNewyear(self):
