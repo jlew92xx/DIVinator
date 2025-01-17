@@ -14,7 +14,7 @@ urlToTicker = {}
 columns = ["paid_at", "position", "rate" ,"amount","state", "id"]
 sleepTime = 900
 dbManager:DatabaseManager
-stocks = None
+stocksDict = {}
 
 
 POSITIONURL = "https://api.robinhood.com/positions/"
@@ -43,28 +43,37 @@ def buildURLToTickerDict():
     for stock in stocks:
         if stock["url"] not in urlToTicker.keys():
             urlToTicker[stock["url"]] = stock['symbol']
-
+def getNumShares(ticker:str) -> float:
+    if(ticker in stocksDict.keys()):
+        return float(stocksDict[ticker]["quantity"])
 def logInAndUpdate():
+    try:
+        divs =  robinhood.get_dividends()
+        stocks = robinhood.get_all_positions()
+        for stock in stocks:
+            stocksDict[stock['symbol']] = stock
 
-    divs =  robinhood.get_dividends()
-    for div in divs:
-        insertDivDict = {}
-        posUrl = div["instrument"].replace("instruments", "positions/5UX32878")
-        #for some reason the ticker is not part of the dividend dict in the Robinhod api
-        insertDivDict['ticker'] = urlToTicker[posUrl]
-        for column in columns:
-            value = div[column]
-            insertDivDict[column] = value
-        if insertDivDict['paid_at'] != None:
-            if dbManager != None:
+        for div in divs:
+            insertDivDict = {}
+            posUrl = div["instrument"].replace("instruments", "positions/5UX32878")
+            #for some reason the ticker is not part of the dividend dict in the Robinhod api
+            insertDivDict['ticker'] = urlToTicker[posUrl]
+            for column in columns:
+                value = div[column]
+                insertDivDict[column] = value
+            if insertDivDict['paid_at'] != None:
+                if dbManager != None:
+                    dbManager.insertDiv(insertDivDict)
+            elif div["state"] == 'pending':
+                insertDivDict['paid_at'] = div['payable_date'] +'T00:00:00.000000Z'
                 dbManager.insertDiv(insertDivDict)
-        elif div["state"] == 'pending':
-            insertDivDict['paid_at'] = div['payable_date'] +'T00:00:00.000000Z'
-            dbManager.insertDiv(insertDivDict)
+    except:
+        logIn()
 
 def updateUrlToTicker(posUrl:str) -> bool:
     output = False
     stocks = robinhood.get_all_positions()
+    
     for stock in stocks:
         if stock["url"] not in urlToTicker.keys():
             if stock["url"] == posUrl:
@@ -73,7 +82,13 @@ def updateUrlToTicker(posUrl:str) -> bool:
 
     return output 
 
-
+def getCurrentPrice(ticker:str):
+    try:
+        x = float(robinhood.get_latest_price(ticker)[0])
+        return x
+    except:
+        logIn()
+        return -404
 # def startThread():
 #     # t = openCred()
 #     # KEY = t["KEY"]
@@ -137,17 +152,32 @@ def updateUrlToTicker(posUrl:str) -> bool:
 
 #         divs = newDivs
 
-def getAvgStockPrice(ticker:str) -> str:
-    positions = robinhood.account.get_all_positions()
-    for pos in positions:
-        if pos['symbol'] == ticker:
-            return pos["average_buy_price"]
+def getAvgStockPrice(ticker:str) -> float:
+    return float(stocksDict[ticker]["average_buy_price"])
+    
     
 
 if __name__ == "__main__":
 
     logIn()
-    getAvgStockPrice("KMB")
+    #stockData = robinhood.account.get_all_positions()
+    #instruments = robinhood.orders.get_instruments_by_symbols("BTI")
+    start_time = time.perf_counter()
+    fart2 = robinhood.find_stock_orders(symbol="BTI", cancel=None)
+    end_time = time.perf_counter()
+    print("Time taken for find_stock_orders:", end_time - start_time)
+
+
+    start_time = time.perf_counter()
+    fart2 = robinhood.get_all_stock_orders()
+    end_time = time.perf_counter()
+    print("Time taken for all stocks:", end_time - start_time)
+
+
+
+    #turds = robinhood.get_all_stock_orders()
+
+    print("farts")
 
 
     

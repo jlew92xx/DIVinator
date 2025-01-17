@@ -260,6 +260,24 @@ class DatabaseManager():
         return output
 
 
+    def getLastRateForDiv(self, ticker):
+        db = self.model.database()
+        q = QSqlQuery(db)
+        q.prepare('''
+                    SELECT rate
+                    FROM divabase
+                    WHERE ticker = :ticker
+                    ORDER BY paid_at DESC LIMIT 1
+                  ''')
+        q.bindValue(":ticker", ticker)
+        output = 0
+        if q.exec():
+            if q.next():
+                output = q.value(0)
+
+        return output
+
+
 
 
     def getMonthlyGraphList(self, year):
@@ -349,12 +367,53 @@ class DatabaseManager():
         return output
     
 
-    
+    def getLastYearDivCount(self, ticker:str):
+        #if the latest year is the current year. I do not have a complete year yet. So I return a negative to signify incomplete data.
+        if(datetime.datetime.now().year == int(self.getLatestYear())):
+            return -1
+        last_year = datetime.datetime.now().year - 1
+        db = self.model.database()
+        q = QSqlQuery(db)
+        firstDay = datetime.date(last_year, 1, 1)
+        lastDay = datetime.date(last_year, 12, 31)
+        q.prepare('''
+                    SELECT COUNT()
+                    FROM divabase
+                    WHERE ticker = :ticker
+                    AND paid_at BETWEEN :start_date and :end_date
+                  ''')
+        q.bindValue(":end_date", lastDay.strftime(timeUltil.FORMAT))
+        q.bindValue(":start_date", firstDay.strftime(timeUltil.FORMAT))
+        q.bindValue(":ticker", ticker)
+        output = 0
+        if q.exec():
+            if q.next():
+                output = q.value(0)
+
+        return output
+
+
+
     def getLatestYear(self):
         years = self.getUniqueYears()
         if len(years) == 0:
             return None
         return years[0]
+
+    def getTotalDivForTicker(self, ticker) -> float:
+        db = self.model.database()
+        q = QSqlQuery(db)
+        q.prepare('''
+            SELECT SUM(amount)
+            FROM divabase
+            WHERE ticker = :ticker
+            ''')
+        q.bindValue(":ticker", ticker)
+        output = 0
+        if q.exec():
+            if q.next():
+                output = q.value(0)
+        return output
 
 
     def resetNewUpdate(self):
@@ -380,7 +439,8 @@ class DatabaseManager():
                 if not qdatetime.isValid():
                     print("does not workd!" + q.value(0))
                 output.append((qdatetime.toMSecsSinceEpoch(), q.value(1)))
-
+        
+        output.sort()
         return output
 
     def convertToQDatetime(self, strDate:str):
@@ -399,7 +459,6 @@ if __name__ == "__main__":
    db.setDatabaseName(DIVABASE_PATH)
    db.open()
    DATABASE_MAN = DatabaseManager(db)
-   xxx = DATABASE_MAN.getSumRateYTD("KMB")
-   
-
+   xxx = DATABASE_MAN.getLastAmountForDiv("KMB")
+   print(xxx)
    app.exec()

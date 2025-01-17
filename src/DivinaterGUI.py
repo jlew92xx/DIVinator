@@ -1,7 +1,7 @@
 import sys
 from PyQt6.QtSql import QSqlDatabase
 from PyQt6.QtGui import QColor, QBrush, QFont
-from PyQt6.QtCore import QThread, QObject, pyqtSignal, pyqtSlot, Qt, QModelIndex
+from PyQt6.QtCore import QThread, QObject, pyqtSignal, pyqtSlot, Qt, QModelIndex, QItemSelection
 from PyQt6.QtWidgets import *
 import robinListener
 import DatabaseManager
@@ -13,6 +13,8 @@ from PyQt6.QtCharts import *
 DATABASE = "database/divabase.db"
 DATABASE_MAN = None
 MAX_RANGE_AXIS_RATIO = 1.05
+
+listOfLabelHeader = ["Number Of Shares", "Average Price", "Current Price", "Payment Schedule" ,"Average Yield", "Total Capital Gains", "Total Dividend" , "Total Return"]
 class YearDelegate(QStyledItemDelegate):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -43,6 +45,47 @@ class YearDelegate(QStyledItemDelegate):
 
         option.font = font
         super().paint(painter, option, index)
+
+class ValueLayout(QHBoxLayout):
+    def __init__(self, labelName:str):
+        super().__init__()
+        self.setSpacing(1)
+        self.labelLabel = QLabel()
+        self.labelLabel.setText(labelName + ":")
+        self.addWidget(self.labelLabel)
+
+        self.valueLabel = QLabel("-")
+        self.addWidget(self.valueLabel)
+
+    def setData(self, newData):
+        self.valueLabel.setText(newData)
+
+class DetailsLayout(QVBoxLayout):
+    ADDITIONALDETS = "'s Additional Details"
+    def __init__(self):
+        super().__init__()
+        self.titleLabel = QLabel()
+        titleFont = QFont()
+        titleFont.setPointSize(20)
+        self.titleLabel.setFont(titleFont)
+        self.titleLabel.setText("---" + self.ADDITIONALDETS)
+        self.addWidget(self.titleLabel)
+        self.detailsLabelDict = {}
+        for labelStr in listOfLabelHeader:
+            valueLayout = ValueLayout(labelStr)
+            self.detailsLabelDict[labelStr] = valueLayout
+            self.addLayout(valueLayout)
+
+        self.addSpacerItem(QSpacerItem(309, 260, QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed))
+
+    def onSelectionChange(self, ticker:str, newData:dict):
+        self.titleLabel.setText(ticker + self.ADDITIONALDETS)
+        for labelStr in newData.keys():
+            qLabel:ValueLayout = self.detailsLabelDict[labelStr]
+            qLabel.setData(newData[labelStr])
+
+
+
 
 class ColorDelegate(QStyledItemDelegate):
     def __init__(self, parent=None):
@@ -82,12 +125,12 @@ class YearTable(QTableWidget):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("heyt")
-        self.setHorizontalHeaderLabels(["Month", "total"])
         self.setRowCount(14)
-        self.setColumnCount(2)
+        self.setColumnCount(3)
+        self.setHorizontalHeaderLabels(["month", "Total", "Last Year +/-"])
         self.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.verticalHeader().setVisible(False)
-        self.horizontalHeader().setVisible(False)
+        #self.horizontalHeader().setVisible(False)
         self.setItemDelegate(YearDelegate())
         self.setVisible(True)
         
@@ -123,19 +166,31 @@ class YearTable(QTableWidget):
 
     def setTableData(self, currYear):
         monthlyAmountDict = DATABASE_MAN.getMonthlyGraphDataset(currYear)
+        lastYearAmountDict = DATABASE_MAN.getMonthlyGraphDataset(currYear - 1)
         amd = self.calcAMD(monthlyAmountDict, currYear)
+        lastAmd = self.calcAMD(lastYearAmountDict, currYear - 1)
         total = self.sumTotalYear(monthlyAmountDict)
+        lastTotal = self.sumTotalYear(lastYearAmountDict)
         row = 0
         for monthStr in monthlyAmountDict.keys():
             self.setItem(row, 0, QTableWidgetItem(monthStr + " " + str(currYear)))
             amount = monthlyAmountDict[monthStr]
             self.setItem(row, 1, QTableWidgetItem(f"${amount:.2f}"))
+            diff = 0
+            if (amount != 0):
+                diff = amount - lastYearAmountDict[monthStr]
+            self.setItem(row, 2, QTableWidgetItem(f"${diff:.2f}"))
             row += 1
         self.setItem(row, 0, QTableWidgetItem("AMD"))
         self.setItem(row, 1, QTableWidgetItem(f"${amd:.2f}"))
+        diff = amd - lastAmd
+        self.setItem(row, 2, QTableWidgetItem(f"${diff:.2f}"))
+
         row += 1
         self.setItem(row, 0, QTableWidgetItem("Total"))
         self.setItem(row, 1, QTableWidgetItem("$" +f"{total:.2f}"))
+        diff = total - lastTotal
+        self.setItem(row, 2, QTableWidgetItem(f"${diff:.2f}"))
 
 
 
@@ -181,7 +236,7 @@ class MainWindow(QMainWindow):
         super().__init__()
 
         self.setFixedSize(1300,1010)
-        self.setWindowTitle("Divindends")
+        self.setWindowTitle("Divinater")
         self.mainLayout = QVBoxLayout()
         
         self.mainWidget = QWidget()
@@ -214,10 +269,12 @@ class MainWindow(QMainWindow):
 
         #Middle table
         self.table = self.buildTable()
+        self.table.horizontalHeader().setStretchLastSection(True)
         self.table.filterByYear(self.yearCombobox.currentText())
         self.table.doubleClicked.connect(self.showPopUp)
+        self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.panelLayout.addWidget(self.table)
-        
+        self.table.selectionModel().selectionChanged.connect(self.onSelectionChanged)
         
 
         
@@ -288,13 +345,19 @@ class MainWindow(QMainWindow):
 
         self.data_layout.addWidget(self.chartView)
 
-
-        
+        self.yearTableAndAdditLayout = QHBoxLayout()
+        self.data_layout.addLayout(self.yearTableAndAdditLayout)
         self.yearTable = YearTable()
         
         self.yearTable.setTableData(currYear)
         self.yearTable.setVisible(True)
-        self.data_layout.addWidget(self.yearTable)
+
+
+
+        self.yearTableAndAdditLayout.addWidget(self.yearTable)
+
+        self.detailsLayout = DetailsLayout()
+        self.yearTableAndAdditLayout.addLayout(self.detailsLayout)
 
 
      
@@ -308,7 +371,61 @@ class MainWindow(QMainWindow):
 
 
     
+    def onSelectionChanged(self, selected:QItemSelection, deselected):
+        selectedRow  = selected.indexes()
+        ticker = self.table.model().data(selectedRow[0], 0)
+        print("ticker: " + ticker)
+        detailsDict = {}
+        numOfSharesStr:str = listOfLabelHeader[0]
+        numShare =robinListener.getNumShares(ticker)
+        if (numShare != None):
+            detailsDict[numOfSharesStr] = f"{numShare:.4f}"
 
+        averageStr = listOfLabelHeader[1]
+        averageStock = robinListener.getAvgStockPrice(ticker)
+        detailsDict[averageStr]= f"${averageStock:.2f}"
+
+        currentPrStr = listOfLabelHeader[2]
+        currentPrFlo = robinListener.getCurrentPrice(ticker)
+        detailsDict[currentPrStr] = f"${currentPrFlo:.2f}"
+
+        paymentSchedStr = listOfLabelHeader[3]
+        countInt = DATABASE_MAN.getLastYearDivCount(ticker)
+        #listOfPaymentSched = ("Quart.", "Monthly", "Weird", "N/A")
+        
+        if countInt == 4:
+            paymentSchedType = "Quart."
+        elif countInt == 12:
+            paymentSchedType = "Monthly"
+        else:
+            paymentSchedType = "N/A"
+        
+        detailsDict[paymentSchedStr] = paymentSchedType
+
+        averageYieldStr = listOfLabelHeader[4]
+        averageYieldFlo = "N/A"
+        if(averageStock != 0 and paymentSchedType != "N/A"):
+            latestAmount = DATABASE_MAN.getLastRateForDiv(ticker)
+            averageYieldFlo = 100 * (latestAmount * countInt) / averageStock
+            averageYieldFlo = f"{averageYieldFlo:.4}%"
+        detailsDict[averageYieldStr] = averageYieldFlo
+
+
+        tcpStr = listOfLabelHeader[-3] #capital gains#
+        tcpFlo = numShare * (currentPrFlo - averageStock)
+        detailsDict[tcpStr] = f"${tcpFlo:.2f}"
+
+        totalDivFlo = DATABASE_MAN.getTotalDivForTicker(ticker)
+        totalDivStr = listOfLabelHeader[-2]
+        detailsDict[totalDivStr] = f"${totalDivFlo:.2f}"
+
+        totalRetStr =  listOfLabelHeader[-1]
+        totalRetFlo = totalDivFlo + tcpFlo
+        detailsDict[totalRetStr] = f"${totalRetFlo:.2f}"
+
+
+        self.detailsLayout.onSelectionChange(ticker, detailsDict)
+        
 
     def start_thread(self):
         self.thread = QThread()
@@ -350,7 +467,7 @@ class MainWindow(QMainWindow):
        if newYear == "":
         return
        self.table.filterByYear(newYear)
-       self.yearTable.setTableData(newYear)
+       self.yearTable.setTableData(int(newYear))
 
        self.reinvestedSet = QBarSet(f"Reinvested")
        self.pendingSet = QBarSet(f"Pending")
@@ -382,7 +499,10 @@ class MainWindow(QMainWindow):
 
         avgStockBuyPrice = float(robinListener.getAvgStockPrice(ticker))
         rateYTD = DATABASE_MAN.getSumRateYTD(ticker)
-        averageYield = (rateYTD / avgStockBuyPrice) * 100
+        averageYield = 0
+        if (avgStockBuyPrice != 0):
+            averageYield = (rateYTD / avgStockBuyPrice) * 100
+
         return averageYield
     
     def showPopUp(self):
@@ -450,7 +570,7 @@ class MainWindow(QMainWindow):
 
         # Create and set the Y-axis (QValueAxis)
         axis_y = QValueAxis()
-        axis_y.setLabelFormat("$%.2f")
+        axis_y.setLabelFormat("$%.3f")
         if(min == max):
             min *= .5
             max *= 1.5
