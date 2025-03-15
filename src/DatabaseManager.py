@@ -12,14 +12,6 @@ import sys
 DIVABASE_PATH = "/home/jonathan/Repo/DIVinator/src/divabase.db"
 DIVABASE_TABLE = "divabase"
 
-class ColorDelegate(QStyledItemDelegate):
-    def __init__(self, parent=None):
-        super().__init__(parent)
-
-    def paint(self, painter, option, index):
-        if index.row() % 2 == 0:
-            painter.fillRect(option.rect, QBrush(QColor("lightblue")))
-        super().paint(painter, option, index)
 
 class LewSQLModel(QSqlTableModel):
     def __init__(self, parent: QObject | None = ..., db: QSqlDatabase = ...) -> None:
@@ -37,6 +29,8 @@ class LewSQLModel(QSqlTableModel):
                     return f"${value:,.2f}"  # Format as currency
                 elif (index.column() == 4):
                     return f"${value:,.4f}"
+                elif (index.column() == 8):
+                    return f"{value:,.4f}%"
             else:
                 colIndex = index.column()
                 if colIndex == 1:
@@ -77,6 +71,7 @@ class DatabaseManager():
                           amount real,
                           state text,
                           id text,
+                          yield real,
                           UNIQUE(id)
                 );""")
         self.conn.commit()
@@ -367,11 +362,11 @@ class DatabaseManager():
         return output
     
 
-    def getLastYearDivCount(self, ticker:str):
+    def getLastYearDivCount(self, ticker:str, last_year = None):
         #if the latest year is the current year. I do not have a complete year yet. So I return a negative to signify incomplete data.
-        if(datetime.datetime.now().year == int(self.getLatestYear())):
-            return -1
-        last_year = datetime.datetime.now().year - 1
+
+        if last_year == None:
+            last_year = datetime.datetime.now().year - 1
         db = self.model.database()
         q = QSqlQuery(db)
         firstDay = datetime.date(last_year, 1, 1)
@@ -426,7 +421,7 @@ class DatabaseManager():
         q = QSqlQuery(db)
 
         q.prepare('''
-            SELECT paid_at,rate
+            SELECT paid_at,yield
             FROM divabase
             WHERE ticker = :ticker
         ''')

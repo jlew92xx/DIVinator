@@ -175,22 +175,22 @@ class YearTable(QTableWidget):
         for monthStr in monthlyAmountDict.keys():
             self.setItem(row, 0, QTableWidgetItem(monthStr + " " + str(currYear)))
             amount = monthlyAmountDict[monthStr]
-            self.setItem(row, 1, QTableWidgetItem(f"${amount:.2f}"))
+            self.setItem(row, 1, QTableWidgetItem(f"${amount:,.2f}"))
             diff = 0
             if (amount != 0):
                 diff = amount - lastYearAmountDict[monthStr]
-            self.setItem(row, 2, QTableWidgetItem(f"${diff:.2f}"))
+            self.setItem(row, 2, QTableWidgetItem(f"${diff:,.2f}"))
             row += 1
         self.setItem(row, 0, QTableWidgetItem("AMD"))
-        self.setItem(row, 1, QTableWidgetItem(f"${amd:.2f}"))
+        self.setItem(row, 1, QTableWidgetItem(f"${amd:,.2f}"))
         diff = amd - lastAmd
-        self.setItem(row, 2, QTableWidgetItem(f"${diff:.2f}"))
+        self.setItem(row, 2, QTableWidgetItem(f"${diff:,.2f}"))
 
         row += 1
         self.setItem(row, 0, QTableWidgetItem("Total"))
-        self.setItem(row, 1, QTableWidgetItem("$" +f"{total:.2f}"))
+        self.setItem(row, 1, QTableWidgetItem("$" +f"{total:,.2f}"))
         diff = total - lastTotal
-        self.setItem(row, 2, QTableWidgetItem(f"${diff:.2f}"))
+        self.setItem(row, 2, QTableWidgetItem(f"${diff:,.2f}"))
 
 
 
@@ -201,6 +201,7 @@ class divyTable(QTableView):
     
       self.setModel(DATABASE_MAN.model)
       self.setItemDelegate(ColorDelegate())
+
 
       
 
@@ -228,7 +229,7 @@ class Worker(QObject):
                 print("Running in the background...")
                 self.sig.emit("This")
             # Add a small sleep to prevent excessive CPU usage
-            QThread.msleep(60000)
+            QThread.msleep(900000)
             
 
 class MainWindow(QMainWindow):
@@ -378,16 +379,17 @@ class MainWindow(QMainWindow):
         detailsDict = {}
         numOfSharesStr:str = listOfLabelHeader[0]
         numShare =robinListener.getNumShares(ticker)
-        if (numShare != None):
-            detailsDict[numOfSharesStr] = f"{numShare:.4f}"
+        if (numShare == None):
+            numShare = 0
+        detailsDict[numOfSharesStr] = f"{numShare:,.4f}"
 
         averageStr = listOfLabelHeader[1]
         averageStock = robinListener.getAvgStockPrice(ticker)
-        detailsDict[averageStr]= f"${averageStock:.2f}"
+        detailsDict[averageStr]= f"${averageStock:,.2f}"
 
         currentPrStr = listOfLabelHeader[2]
         currentPrFlo = robinListener.getCurrentPrice(ticker)
-        detailsDict[currentPrStr] = f"${currentPrFlo:.2f}"
+        detailsDict[currentPrStr] = f"${currentPrFlo:,.2f}"
 
         paymentSchedStr = listOfLabelHeader[3]
         countInt = DATABASE_MAN.getLastYearDivCount(ticker)
@@ -413,15 +415,15 @@ class MainWindow(QMainWindow):
 
         tcpStr = listOfLabelHeader[-3] #capital gains#
         tcpFlo = numShare * (currentPrFlo - averageStock)
-        detailsDict[tcpStr] = f"${tcpFlo:.2f}"
+        detailsDict[tcpStr] = f"${tcpFlo:,.2f}"
 
         totalDivFlo = DATABASE_MAN.getTotalDivForTicker(ticker)
         totalDivStr = listOfLabelHeader[-2]
-        detailsDict[totalDivStr] = f"${totalDivFlo:.2f}"
+        detailsDict[totalDivStr] = f"${totalDivFlo:,.2f}"
 
         totalRetStr =  listOfLabelHeader[-1]
         totalRetFlo = totalDivFlo + tcpFlo
-        detailsDict[totalRetStr] = f"${totalRetFlo:.2f}"
+        detailsDict[totalRetStr] = f"${totalRetFlo:,.2f}"
 
 
         self.detailsLayout.onSelectionChange(ticker, detailsDict)
@@ -510,9 +512,6 @@ class MainWindow(QMainWindow):
         selectedRow = self.table.selectedIndexes()
         sizeOfSelection = len(selectedRow)
 
-        #Make sure it's a single row. correct later where you can only select one row at a time.
-        if (sizeOfSelection != 6):
-            return
         
         row_data = []
         for index in selectedRow:
@@ -527,8 +526,7 @@ class MainWindow(QMainWindow):
         popupWindow.setMinimumSize(500, 420)
         ticker = row_data[0]
         
-        avgYield = MainWindow.calculateAverageYield(ticker)
-        print(f"{ticker}->{avgYield}%")
+        
 
         popupWindow.setWindowTitle(f"{ticker} dividend Report")
         popUpWidget = QWidget()
@@ -570,7 +568,7 @@ class MainWindow(QMainWindow):
 
         # Create and set the Y-axis (QValueAxis)
         axis_y = QValueAxis()
-        axis_y.setLabelFormat("$%.3f")
+        axis_y.setLabelFormat("%.3f/%")
         if(min == max):
             min *= .5
             max *= 1.5
@@ -590,6 +588,7 @@ class MainWindow(QMainWindow):
     def buildTable(self) -> divyTable:
        table = divyTable()
        table.setModel(DATABASE_MAN.model)
+       table.resizeColumnsToContents()
        table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
 
        table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
