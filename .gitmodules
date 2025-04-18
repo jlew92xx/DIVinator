@@ -1,0 +1,3 @@
+[submodule "src/robin_stocks"]
+	path = src/robin_stocks
+	url = https://github.com/jmfernandes/robin_stocks.git

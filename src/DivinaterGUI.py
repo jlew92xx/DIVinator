@@ -14,7 +14,7 @@ DATABASE = "database/divabase.db"
 DATABASE_MAN = None
 MAX_RANGE_AXIS_RATIO = 1.05
 
-listOfLabelHeader = ["Number Of Shares", "Average Price", "Current Price", "Payment Schedule" ,"Average Yield", "Total Capital Gains", "Total Dividend" , "Total Return"]
+listOfLabelHeader = ["Number Of Shares", "Average Price", "Current Price", "Payment Schedule" ,"Average Yield", "Amount Invested" ,"Current capital",  "Total Capital Gains", "Total Dividend" , "Total Return"]
 class YearDelegate(QStyledItemDelegate):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -237,11 +237,11 @@ class MainWindow(QMainWindow):
         super().__init__()
 
         self.setFixedSize(1300,1010)
-        self.setWindowTitle("Divinater")
+        self.setWindowTitle("Divinator")
         self.mainLayout = QVBoxLayout()
         
         self.mainWidget = QWidget()
-        self.mainWidget.setLayout(self.mainLayout)
+        self.mainWidget.setLayout(self.mainLayout)  
         self.setCentralWidget(self.mainWidget)
 
 
@@ -412,6 +412,16 @@ class MainWindow(QMainWindow):
             averageYieldFlo = f"{averageYieldFlo:.4}%"
         detailsDict[averageYieldStr] = averageYieldFlo
 
+        amountInvested = robinListener.getAmountInvested(ticker)
+        amountInvestedHeader = listOfLabelHeader[5]
+        amountInvestedStr = f"${amountInvested:,.2f}"
+        detailsDict[amountInvestedHeader] = amountInvestedStr
+
+        currentCapValue = currentPrFlo * numShare
+        currentCapHeader = listOfLabelHeader[6]
+        currentCapValueStr = f"${currentCapValue:,.2f}"
+        detailsDict[currentCapHeader] = currentCapValueStr
+
 
         tcpStr = listOfLabelHeader[-3] #capital gains#
         tcpFlo = numShare * (currentPrFlo - averageStock)
@@ -422,7 +432,7 @@ class MainWindow(QMainWindow):
         detailsDict[totalDivStr] = f"${totalDivFlo:,.2f}"
 
         totalRetStr =  listOfLabelHeader[-1]
-        totalRetFlo = totalDivFlo + tcpFlo
+        totalRetFlo = currentCapValue - amountInvested
         detailsDict[totalRetStr] = f"${totalRetFlo:,.2f}"
 
 

@@ -92,11 +92,11 @@ class DatabaseManager():
         self.isNewyear = False
 
     def setYearFilter(self, year:str):
-        self.model.setFilter(f"DATE(paid_at) BETWEEN '{year}-01-01T00:00:00.00' AND '{year}-12-31T23:59:59.99'")
+        self.model.setFilter(f"DATE(paid_at) BETWEEN '{str(int(year) -1)}-12-31T23:59:59.99' AND '{year}-12-31T23:59:59.99'")
         self.model.select()
 
     def setTextFilter(self, text:str, year:str):
-        self.model.setFilter(f"(DATE(paid_at) BETWEEN '{year}-01-01T00:00:00.00' AND '{year}-12-31T23:59:59.99') AND ticker LIKE '{text}%'")
+        self.model.setFilter(f"(DATE(paid_at) BETWEEN '{str(int(year) -1)}-12-31T23:59:59.99' AND '{year}-12-31T23:59:59.99') AND ticker LIKE '{text}%'")
         self.model.select()
 
     
@@ -254,6 +254,23 @@ class DatabaseManager():
 
         return output
 
+    def getLatestPaidDate(self):
+        db = self.model.database()
+        q = QSqlQuery(db)
+        q.prepare('''
+                  SELECT paid_at
+                  FROM divabase
+                  WHERE state = 'reinvested' or state = 'paid'
+                  ORDER BY paid_at DESC LIMIT 1
+                  ''')
+        if q.exec():
+            if q.next():
+                output = q.value(0)
+                date_object = datetime.datetime.strptime(output, timeUltil.FORMAT)
+                previous_day = date_object - datetime.timedelta(days=1)
+
+                return previous_day.strftime(timeUltil.PAYABLE_FORMAT)
+        return None
 
     def getLastRateForDiv(self, ticker):
         db = self.model.database()
@@ -345,6 +362,20 @@ class DatabaseManager():
             output[monthName[:3]] = total
             month += 1
         
+        # q.prepare('''SELECT ticker, paid_at, amont FROM divabase
+        #         WHERE strftime('%Y', paid_at) = :year
+        #         AND strftime('%m', paid_at) = :month
+        #         ''')
+        # q.bindValue(":year", str(year))
+        # q.bindValue(":month", str(1).zfill(2))
+        # testDict = {}
+        # if q.exec():
+        #     while q.next():
+        #         tic = q.value(0)
+        #         paid_at = q.value(1)
+        #         testDict[tic] = paid_at
+        #         q.nextResult()
+        # print(testDict)
         return output
 
     def getUniqueYears(self) :
@@ -454,6 +485,6 @@ if __name__ == "__main__":
    db.setDatabaseName(DIVABASE_PATH)
    db.open()
    DATABASE_MAN = DatabaseManager(db)
-   xxx = DATABASE_MAN.getLastAmountForDiv("KMB")
+   xxx = DATABASE_MAN.getLatestPaidDate()
    print(xxx)
    app.exec()

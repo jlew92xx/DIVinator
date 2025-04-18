@@ -1,8 +1,9 @@
 import json, copy, time
 import datetime
-from robin_stocks import robinhood, helper
+from robin_stocks.robin_stocks import robinhood
 from DatabaseManager import DatabaseManager
-import pytz
+import pyotp
+import robin_stocks.robin_stocks.robinhood as r
 #import polyClient as poly
 import timeUltil as timeHelp
 
@@ -31,42 +32,76 @@ def setDbManager(dbm):
     global dbManager
     dbManager = dbm
 
-def logIn():
+def logIn()->bool:
     t = openCred()
     KEY = t["KEY"]
     EMAIL = t["EMAIL"]
     PASSWD = t["PASSWD"]
     CODE = t["CODE"]
+    
+        
+    totp = pyotp.TOTP(KEY).now()
+    print(totp)
+    login = r.login(EMAIL, PASSWD,mfa_code=totp)
 
-    LOGIN = robinhood.login(EMAIL, PASSWD, mfa_code = CODE)
+    return True
+    
 
 
 def buildURLToTickerDict():
-    stocks = robinhood.get_all_positions()
+    stocks = r.get_all_positions()
     for stock in stocks:
         if stock["url"] not in urlToTicker.keys():
             urlToTicker[stock["url"]] = stock['symbol']
 def getNumShares(ticker:str) -> float:
     if(ticker in stocksDict.keys()):
         return float(stocksDict[ticker]["quantity"])
+    
+def getAmountInvested(ticker:str) -> float:
+    if(ticker in stocksDict.keys()):
+        return stocksDict[ticker]["amount_invested"]
+    return 0
+
 def logInAndUpdate():
     
-    divs =  robinhood.get_dividends()
-    stocks = robinhood.get_all_positions()
+    divs =  r.account.get_dividends_from_time(start_time = dbManager.getLatestPaidDate())
+    stocks = r.get_all_positions()
     start_time = time.perf_counter()
     stockOrders = robinhood.get_all_stock_orders()
     newStocksDict = {}
     for stock in stocks:
+
         newStocksDict[stock['symbol']] = stock
         #stock["freq"] = poly.getFreq(stock['symbol']) 
         instrument = stock["instrument"]
         i = 0
         orders = []
+        stock["amount_invested"] = 0
         stock ["orders"] = orders
         for order in stockOrders[:]:
-            if order["instrument"] == instrument and order["side"] == 'buy' and order['state'] == "filled":
-                orders.append(order)
+            if order["instrument"] == instrument and order['state'] == "filled":
+                orderType = order["side"]
+                if orderType == 'buy':
+                    orders.append(order)
+                if order["drip_dividend_id"] == None:
+                    if orderType == 'sell':
+                        stock["amount_invested"] -= float(order['executed_notional']['amount'])
+                        if stock['symbol'] == "MSFT":
+                            print( f"sells {order['created_at']}->  ${order['executed_notional']['amount']}")
+                            print("-----------------------------------------------")
+                        
+                    elif orderType == 'buy':
+                        stock["amount_invested"] += float(order['executed_notional']['amount'])
+                        if stock['symbol'] == "MSFT":
+                            print( f"BUYS {order['created_at']}->  ${order['executed_notional']['amount']}")
+                            print("-----------------------------------------------")
+
+
+
             i += 1
+
+
+
     end_time = time.perf_counter()
     global stocksDict
     stocksDict = newStocksDict
@@ -116,7 +151,7 @@ def calculateYield(recordDateStr, ticker , rate):
     return divYield
 def updateUrlToTicker(posUrl:str) -> bool:
     output = False
-    stocks = robinhood.get_all_positions()
+    stocks = r.get_all_positions()
     
     for stock in stocks:
         if stock["url"] not in urlToTicker.keys():
@@ -127,15 +162,15 @@ def updateUrlToTicker(posUrl:str) -> bool:
     return output 
 
 def getStockPositions() -> list:
-    urls = robinhood.get_all_positions("url")
+    urls = r.get_all_positions("url")
     output = []
     for url in urls:
-        output.append(robinhood.get_symbol_by_url(url))
+        output.append(r.get_symbol_by_url(url))
     return output
 
 def getCurrentPrice(ticker:str):
     try:
-        x = float(robinhood.get_latest_price(ticker)[0])
+        x = float(r.get_latest_price(ticker)[0])
         return x
     except:
         logIn()
@@ -147,11 +182,11 @@ def getCurrentPrice(ticker:str):
 #     # PASSWD = t["PASSWD"]
 #     # CODE = t["CODE"]
 
-#     # LOGIN = robinhood.login(EMAIL, PASSWD, mfa_code = CODE)
+#     # LOGIN = r.login(EMAIL, PASSWD, mfa_code = CODE)
 
 
-#     # divs =  robinhood.get_dividends()
-#     # stocks = robinhood.get_all_positions()
+#     # divs =  r.get_dividends()
+#     # stocks = r.get_all_positions()
 
 # #ORGNAIZE LATER WORK NOW
 #     divs = []
@@ -196,10 +231,10 @@ def getCurrentPrice(ticker:str):
 #         time.sleep(sleepTime)
 #         newDivs = []
 #         try:
-#             newDivs = robinhood.get_dividends()
+#             newDivs = r.get_dividends()
 #         except:
 #             logIn()
-#             print("robinhood failure")
+#             print("r failure")
 
 #         divs = newDivs
 
@@ -213,24 +248,13 @@ def getAvgStockPrice(ticker:str) -> float:
 if __name__ == "__main__":
 
     logIn()
-    #stockData = robinhood.account.get_all_positions()
-    #instruments = robinhood.orders.get_instruments_by_symbols("BTI")
-    start_time = time.perf_counter()
-    fart2 = robinhood.find_stock_orders(symbol="BTI", cancel=None)
-    end_time = time.perf_counter()
-    print("Time taken for find_stock_orders:", end_time - start_time)
-
-
-    start_time = time.perf_counter()
-    fart2 = robinhood.get_all_stock_orders()
-    end_time = time.perf_counter()
-    print("Time taken for all stocks:", end_time - start_time)
-
-
+    x = r.account.get_dividends_from_time(start_time="2025-03-14T01:28:32.502343Z")
+    #stockData = r.account.get_all_positions()
+    #instruments = r.orders.get_instruments_by_symbols("BTI")
 
     #turds = robinhood.get_all_stock_orders()
 
-    print("farts")
+    print(x)
 
 
     
