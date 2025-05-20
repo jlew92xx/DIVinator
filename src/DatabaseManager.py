@@ -134,44 +134,22 @@ class DatabaseManager():
             self.model.submit()
         elif div['state'] != self.getState(div['id']):
             #If the state of the div changes
-            print("updates state of " + div['ticker'])
+            print("updates state of " + div['ticker'] + " to " + div["state"])
             self.newUpdate = True
             self.updateState(div)
             self.model.submitAll()
 
     def updateState(self, div:dict):
-        # db = self.model.database()
-        # q = QSqlQuery(db)
-        # self.model.find
-        # paid = div['paid_at']
-        # if paid == None:
-        #     return
-        # state = div['state']
-        # id = div['id']
-        # q.prepare('''
-        #         UPDATE
-        #             divabase
-        #         SET
-        #             paid_at = :paid
-        #             state= :state
-        #         WHERE
-        #             id = :id
-                    
-        #        ''')
-        # q.bindValue(":paid", paid)
-        # q.bindValue(":state", state)
-        # q.bindValue(":id", id)
-
-        # q.exec()
         newState = div["state"]
+        newDate = div["paid_at"]
         id = div["id"] 
         self.curs.execute ("""
                                 UPDATE
                                     divabase   
                                 SET
-                                    state = ?
-                                    WHERE
-                                        id = ?""", (newState, id,))
+                                    state = ?, paid_at = ?
+                                WHERE
+                                    id = ?""", (newState, newDate, id,))
         self.conn.commit()
 
 

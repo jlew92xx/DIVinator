@@ -10,6 +10,7 @@ import datetime
 import time
 from PyQt6.QtCharts import *
 
+
 DATABASE = "database/divabase.db"
 DATABASE_MAN = None
 MAX_RANGE_AXIS_RATIO = 1.05
@@ -133,6 +134,8 @@ class YearTable(QTableWidget):
         #self.horizontalHeader().setVisible(False)
         self.setItemDelegate(YearDelegate())
         self.setVisible(True)
+        self.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         
     def calcAMD(self, newData:dict, newYear):
          #Cal calculate sum for average
@@ -203,9 +206,12 @@ class divyTable(QTableView):
       self.setItemDelegate(ColorDelegate())
 
 
+
       
 
     def filterByYear (self, year:str):
+       if(year == ""):
+           return
        DATABASE_MAN.setYearFilter(year)
 
     def filterByText(self, text:str, year:str):
